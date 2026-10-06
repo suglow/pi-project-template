@@ -1,0 +1,36 @@
+# Machine configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+.pi/agent/
+.pi/sessions/
+.pi/STATE.md
+auth.json
+models-store.json
+*.bak-*
+
+# Editor / OS artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Common dependencies, caches and generated output
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+coverage/
+.coverage
+dist/
+build/
+target/
+*.log
+
+# Review these defaults against the chosen stack; keep source artifacts tracked.
