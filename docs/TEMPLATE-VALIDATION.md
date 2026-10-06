@@ -14,7 +14,13 @@
 - 验证全局配置必须显式选择、dry-run 不改项目或全局、全局预检失败不改项目。
 - `node scripts/build-installers.mjs --check` 验证三个自包含入口与源文件一致。
 
-文档已经使用 suglow/pi-project-template 的真实仓库路径。真实 GitHub Raw 入口验证在首次推送后执行；本机 HTTP curl 传输验证已通过。
+GitHub 发布验证：2026-10-06。
+
+- GitHub CLI 登录验证为 suglow。
+- 已创建并推送公开模板仓库：https://github.com/suglow/pi-project-template，默认分支 main。
+- 真实 GitHub Raw 下载的 install-project.mjs、install-project.sh、install-project.bat 与本地入口内容一致（忽略平台换行差异）。
+- 三个真实下载入口分别在独立临时 Git 工程中执行，均成功生成 AGENTS.md、Pi settings 和全局配置脚本。
+- 真实下载验证没有修改本机 Pi 全局配置或业务工程。
 
 ## 已执行
 
