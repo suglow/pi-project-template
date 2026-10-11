@@ -6,14 +6,15 @@ import {spawnSync} from 'node:child_process';
 
 // This source is bundled with the template files by build-installers.mjs.
 function argumentsForInstaller(args) {
-  const options = {dryRun: false, overwrite: false, globalModels: false};
+  const options = {dryRun: false, overwrite: false, globalModels: false, nonInteractive: false};
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--help' || flag === '-h') options.help = true;
     else if (flag === '--dry-run') options.dryRun = true;
     else if (flag === '--overwrite') options.overwrite = true;
     else if (flag === '--global-models') options.globalModels = true;
-    else if (['--project-dir', '--base-url', '--agent-dir'].includes(flag)) {
+    else if (flag === '--non-interactive') options.nonInteractive = true;
+    else if (['--project-dir', '--base-url', '--agent-dir', '--project-name', '--description', '--stack', '--agents'].includes(flag)) {
       const value = args[++i];
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}.`);
       options[flag.slice(2)] = value;
@@ -30,13 +31,25 @@ Usage: install-project [options]
   --dry-run          Preview; do not change project or global configuration
   --overwrite        Back up and replace existing template-managed files
   --project-dir DIR  Locate the Git project from this directory (default: cwd)
+  --non-interactive  Skip the interactive questionnaire and use defaults
+  --project-name NAME Project name for PROJECT.md
+  --description TEXT Project purpose for PROJECT.md
+  --stack TEXT       Language/stack for PROJECT.md
+  --agents LIST      Comma-separated agents (codex,pi,opencode,hermes,claude-code)
   --global-models    Also configure global Pi models.json (explicit opt in)
   --base-url URL     Model API root; requires --global-models
   --agent-dir DIR    Global Pi directory; requires --global-models
   --help             Show usage
 
 Existing files are preserved by default. The business README and Git remotes,
-branch, index and commit history are not changed. .gitignore gets a managed block.
+branch, index and commit history are not changed. .gitignore gets a managed
+block that ignores agent-specific and machine-specific files, while shared
+rules (AGENTS.md, CLAUDE.md, PROJECT.md) stay committable.
+
+When run from a terminal, an interactive questionnaire collects the project
+name, purpose, stack, and selected agents, then renders PROJECT.md and lays
+down only the relevant files. Piped/CI runs skip it; pass --non-interactive
+or the --project-name/--description/--stack/--agents options to override.
 `;
 
 function checkPath(root, relative) {
@@ -59,7 +72,7 @@ function checkPath(root, relative) {
 
 const ignoreBegin = '# BEGIN pi-project-template';
 const ignoreEnd = '# END pi-project-template';
-const ignoreBlock = `${ignoreBegin}\n.pi/STATE.md\n.pi/agent/\n.pi/sessions/\n.pi/template-backups/\n${ignoreEnd}\n`;
+const ignoreBlock = `${ignoreBegin}\n.pi/\nconfig/pi/models.r9700.json\nscripts/configure-models.mjs\nscripts/configure-models.sh\nscripts/configure-models.bat\ndocs/DECISIONS.md\n${ignoreEnd}\n`;
 
 function gitignoreContent(previous) {
   const text = previous?.toString('utf8') || '';
@@ -77,6 +90,77 @@ function gitignoreContent(previous) {
     throw new Error('Existing managed .gitignore block differs; review it before retrying.');
   }
   return Buffer.from(`${text}${text && !text.endsWith('\n') ? '\n' : ''}${text ? '\n' : ''}${ignoreBlock}`);
+}
+
+function canInteract(options) {
+  if (options.nonInteractive) return false;
+  if (process.stdin.isTTY) return true;
+  if (process.platform !== 'win32') {
+    try { fs.accessSync('/dev/tty', fs.constants.R_OK); return true; } catch {}
+  }
+  return false;
+}
+
+function interactiveFd() {
+  if (process.platform !== 'win32') {
+    try { return fs.openSync('/dev/tty', 'r'); } catch {}
+  }
+  return 0;
+}
+
+function askSync(fd, question, defaultValue) {
+  const suffix = defaultValue ? ` [${defaultValue}]` : '';
+  process.stdout.write(`${question}${suffix}: `);
+  const buffer = Buffer.alloc(4096);
+  let total = 0;
+  while (total < buffer.length) {
+    const read = fs.readSync(fd, buffer, total, buffer.length - total, null);
+    if (read === 0) break;
+    total += read;
+    if (buffer.subarray(0, total).includes(0x0a)) break;
+  }
+  const answer = buffer.toString('utf8', 0, total).split(/\r?\n/, 1)[0].trim();
+  return answer === '' ? (defaultValue ?? '') : answer;
+}
+
+function collectAnswers(options, root) {
+  const fd = interactiveFd();
+  try {
+    const name = askSync(fd, '项目名称', options['project-name'] || path.basename(root));
+    const description = askSync(fd, '一句话用途/描述', options['description'] || '');
+    const stack = askSync(fd, '主要语言/技术栈', options['stack'] || '');
+    const agentsDefault = options['agents'] || 'codex,pi,opencode,hermes,claude-code';
+    const agents = askSync(fd, '选用哪些编码 Agent（逗号分隔，回车=全部）', agentsDefault);
+    const globalModels = askSync(fd, '现在配置全局模型？(y/N)', 'n');
+    return {
+      name,
+      description,
+      stack,
+      agents: agents.split(',').map(item => item.trim().toLowerCase()).filter(Boolean),
+      globalModels: /^y(es)?$/i.test(globalModels.trim()),
+    };
+  } finally {
+    if (fd !== 0) fs.closeSync(fd);
+  }
+}
+
+function renderProjectMd(template, answers) {
+  let text = template;
+  if (answers.name) text = text.replace('- 项目名称：待确认', `- 项目名称：${answers.name}`);
+  if (answers.description) text = text.replace('- 用途和用户：待确认', `- 用途和用户：${answers.description}`);
+  if (answers.stack) text = text.replace('- 语言和运行时：待确认', `- 语言和运行时：${answers.stack}`);
+  return text;
+}
+
+function filesForAgents(bundle, agents) {
+  const groups = bundle.groups || {};
+  const usePi = agents.includes('pi') || agents.includes('all');
+  const selected = {};
+  for (const [relative, encoded] of Object.entries(bundle.files)) {
+    const group = groups[relative] || 'common';
+    if (group === 'common' || (group === 'pi' && usePi)) selected[relative] = encoded;
+  }
+  return selected;
 }
 
 function globalStage(bundle) {
@@ -117,10 +201,25 @@ function installProject(bundle) {
   if (git.status !== 0) throw new Error('No accessible Git project. Run git init first, or use --project-dir.');
   const root = fs.realpathSync(git.stdout.trim());
   console.log(`Project root: ${root}`);
+  const answers = canInteract(options) ? collectAnswers(options, root) : {
+    name: options['project-name'] || '',
+    description: options['description'] || '',
+    stack: options['stack'] || '',
+    agents: (options['agents'] || 'codex,pi,opencode,hermes,claude-code').split(',').map(item => item.trim().toLowerCase()).filter(Boolean),
+    globalModels: false,
+  };
+  if (answers.globalModels) options.globalModels = true;
+  console.log(`Selected agents: ${answers.agents.join(', ') || '(common only)'}`);
+  if (answers.name || answers.description || answers.stack) {
+    console.log(`Project: ${answers.name || '-'} | ${answers.description || '-'} | ${answers.stack || '-'}`);
+  }
   const plan = [];
-  for (const [relative, encoded] of Object.entries(bundle.files)) {
+  for (const [relative, encoded] of Object.entries(filesForAgents(bundle, answers.agents))) {
+    const decoded = Buffer.from(encoded, 'base64');
+    const incoming = relative === 'PROJECT.md'
+      ? Buffer.from(renderProjectMd(decoded.toString('utf8'), answers))
+      : decoded;
     const file = checkPath(root, relative);
-    const incoming = Buffer.from(encoded, 'base64');
     const previous = fs.existsSync(file) ? fs.readFileSync(file) : undefined;
     const action = previous ? previous.equals(incoming) ? 'MATCH' : options.overwrite ? 'REPLACE' : 'SKIP' : 'CREATE';
     plan.push({relative, file, previous, incoming, action});

@@ -22,7 +22,7 @@ function run(project, args = []) {
   // Copy the single downloaded entry point away from the template repository.
   const downloaded = path.join(path.dirname(project), 'downloaded-install.mjs');
   fs.copyFileSync(path.join(root, 'scripts/install-project.mjs'), downloaded);
-  return spawnSync(process.execPath, [downloaded, ...args], {cwd: project, encoding: 'utf8'});
+  return spawnSync(process.execPath, [downloaded, '--non-interactive', ...args], {cwd: project, encoding: 'utf8'});
 }
 
 test('standalone downloaded installer configures an existing Git project', () => {
@@ -31,7 +31,7 @@ test('standalone downloaded installer configures an existing Git project', () =>
   fs.writeFileSync(path.join(project, 'README.md'), originalReadme);
   const result = run(project);
   assert.equal(result.status, 0, result.stderr);
-  for (const file of ['AGENTS.md', 'PROJECT.md', '.pi/settings.json', '.pi/STATE.example.md', '.pi/prompts/project-start.md', 'scripts/configure-models.bat', 'config/pi/models.r9700.json']) {
+  for (const file of ['AGENTS.md', 'CLAUDE.md', 'PROJECT.md', '.pi/settings.json', '.pi/STATE.example.md', '.pi/prompts/project-start.md', 'scripts/configure-models.bat', 'config/pi/models.r9700.json']) {
     assert.ok(fs.existsSync(path.join(project, file)), file);
   }
   assert.equal(fs.readFileSync(path.join(project, 'README.md'), 'utf8'), originalReadme);
@@ -68,11 +68,59 @@ test('gitignore additions preserve existing rules and remain idempotent', () => 
   assert.equal(run(project).status, 0);
   const first = fs.readFileSync(path.join(project, '.gitignore'), 'utf8');
   assert.ok(first.startsWith('specific-cache/\n'));
-  assert.ok(first.includes('.pi/template-backups/'));
+  assert.ok(first.includes('.pi/'));
+  assert.ok(first.includes('config/pi/models.r9700.json'));
   const result = run(project);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.readFileSync(path.join(project, '.gitignore'), 'utf8'), first);
   assert.ok(result.stdout.includes('No changes needed'));
+});
+
+test('agent-specific files are gitignored while shared rules stay committable', () => {
+  const {project} = fixture();
+  const result = run(project);
+  assert.equal(result.status, 0, result.stderr);
+  for (const file of ['.pi/settings.json', '.pi/STATE.example.md', 'config/pi/models.r9700.json', 'scripts/configure-models.mjs', 'docs/DECISIONS.md']) {
+    const check = spawnSync('git', ['check-ignore', file], {cwd: project, encoding: 'utf8'});
+    assert.equal(check.status, 0, `${file} should be ignored`);
+  }
+  for (const file of ['AGENTS.md', 'CLAUDE.md', 'PROJECT.md', '.editorconfig', '.gitattributes', '.github/PULL_REQUEST_TEMPLATE.md']) {
+    const check = spawnSync('git', ['check-ignore', file], {cwd: project, encoding: 'utf8'});
+    assert.notEqual(check.status, 0, `${file} should not be ignored`);
+  }
+  const status = spawnSync('git', ['status', '--porcelain'], {cwd: project, encoding: 'utf8'}).stdout;
+  assert.deepEqual(status.split('\n').filter(Boolean).map(line => line.slice(3)).sort(), ['.editorconfig', '.gitattributes', '.github/', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'PROJECT.md']);
+});
+
+test('project answers render into PROJECT.md', () => {
+  const {project} = fixture();
+  const result = run(project, ['--project-name', 'MyApp', '--description', 'A demo app', '--stack', 'python']);
+  assert.equal(result.status, 0, result.stderr);
+  const projectMd = fs.readFileSync(path.join(project, 'PROJECT.md'), 'utf8');
+  assert.ok(projectMd.includes('- 项目名称：MyApp'));
+  assert.ok(projectMd.includes('- 用途和用户：A demo app'));
+  assert.ok(projectMd.includes('- 语言和运行时：python'));
+  assert.ok(!projectMd.includes('项目名称：待确认'));
+});
+
+test('agent selection without pi omits Pi-specific files', () => {
+  const {project} = fixture();
+  const result = run(project, ['--agents', 'codex,opencode,hermes']);
+  assert.equal(result.status, 0, result.stderr);
+  for (const file of ['AGENTS.md', 'CLAUDE.md', 'PROJECT.md']) {
+    assert.ok(fs.existsSync(path.join(project, file)), file);
+  }
+  assert.equal(fs.existsSync(path.join(project, '.pi/settings.json')), false);
+  assert.equal(fs.existsSync(path.join(project, 'config/pi/models.r9700.json')), false);
+  assert.equal(fs.existsSync(path.join(project, 'scripts/configure-models.mjs')), false);
+});
+
+test('selecting pi lays down Pi-specific files', () => {
+  const {project} = fixture();
+  const result = run(project, ['--agents', 'pi']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(fs.existsSync(path.join(project, '.pi/settings.json')));
+  assert.ok(fs.existsSync(path.join(project, 'config/pi/models.r9700.json')));
 });
 
 test('dry run leaves Git project and global configuration untouched', () => {
@@ -150,7 +198,7 @@ test('symlinked configuration directory is rejected before writing', () => {
 test('Bash entry runs from streamed stdin with no local template files', {skip: process.platform === 'win32' && !fs.existsSync('C:/Program Files/Git/bin/bash.exe')}, () => {
   const {project} = fixture();
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-  const result = spawnSync(bash, ['-s', '--'], {cwd: project, input: fs.readFileSync(path.join(root, 'scripts/install-project.sh')), encoding: 'utf8'});
+  const result = spawnSync(bash, ['-s', '--', '--non-interactive'], {cwd: project, input: fs.readFileSync(path.join(root, 'scripts/install-project.sh')), encoding: 'utf8'});
   assert.equal(result.status, 0, result.stderr);
   assert.ok(fs.existsSync(path.join(project, '.pi/settings.json')));
 });
@@ -159,7 +207,7 @@ test('downloaded BAT entry runs with no adjacent template files', {skip: process
   const {dir, project} = fixture();
   const batch = path.join(dir, '下载 installer with spaces.bat');
   fs.copyFileSync(path.join(root, 'scripts/install-project.bat'), batch);
-  const result = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${batch}""`], {cwd: project, encoding: 'utf8', windowsVerbatimArguments: true});
+  const result = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${batch}"" --non-interactive`], {cwd: project, encoding: 'utf8', windowsVerbatimArguments: true});
   assert.equal(result.status, 0, result.stderr);
   assert.ok(fs.existsSync(path.join(project, '.pi/settings.json')));
 });
@@ -179,7 +227,7 @@ test('curl downloads a self-contained installer; HTTP failure prevents execution
       const download = path.join(dir, 'downloaded.sh').replaceAll('\\', '/');
       const url = `http://127.0.0.1:${server.address().port}/${route}`;
       const result = await new Promise((resolve, reject) => {
-        const child = spawn(bash, ['-c', 'curl -fsSL "$1" -o "$2" && bash "$2"', 'pi-init', url, download], {cwd: project});
+        const child = spawn(bash, ['-c', 'curl -fsSL "$1" -o "$2" && bash "$2" --non-interactive', 'pi-init', url, download], {cwd: project});
         let stderr = '';
         child.stderr.on('data', text => { stderr += text; });
         child.stdout.resume();

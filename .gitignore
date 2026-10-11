@@ -33,4 +33,14 @@ build/
 target/
 *.log
 
+# Template scaffolding: tracked in the source template repo, but must not
+# leak into a target project when this tree is copied without Git history.
+scripts/install-project.mjs
+scripts/install-project.sh
+scripts/install-project.bat
+scripts/project-installer-core.mjs
+scripts/build-installers.mjs
+tests/
+docs/TEMPLATE-VALIDATION.md
+
 # Review these defaults against the chosen stack; keep source artifacts tracked.

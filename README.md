@@ -40,13 +40,16 @@ curl.exe -fsSL https://raw.githubusercontent.com/suglow/pi-project-template/main
 
 下载后的 BAT 可加相同参数，例如 `--dry-run` 或 `--global-models --agent-dir "D:\pi-agent"`。同时提供 `install-project.mjs`，下载后可以直接通过 Node 运行。
 
+在终端里执行时，安装器会先进行交互问答：依次询问项目名称、用途/描述、语言/技术栈、选用哪些编码 Agent、是否配置全局模型。回答会写入 `PROJECT.md`，并决定是否铺设 Pi 专属文件（`.pi/`、模型样例、配置脚本）。管道执行（`curl | bash`）或 CI 环境没有可交互终端时会自动跳过问答、使用默认值；可用 `--non-interactive` 显式跳过，或用 `--project-name`、`--description`、`--stack`、`--agents` 直接传参。想交互式定制时，先下载到本地再执行。
+
 ### 远程初始化行为
 
 - 自动找到当前 Git 工程根目录；从工程子目录运行也安装到根目录。
-- 新增 AGENTS.md、PROJECT.md、`.pi` 配置和提示命令，以及独立的全局模型配置脚本、模型样例与少量通用项目文件。
+- 新增 AGENTS.md、CLAUDE.md、PROJECT.md、`.pi` 配置和提示命令，以及独立的全局模型配置脚本、模型样例与少量通用项目文件。通用规则与项目资料（AGENTS.md、CLAUDE.md、PROJECT.md、.editorconfig、.gitattributes、PR 模板）默认提交进仓库；`.pi/`、模型样例、配置脚本等 agent 专属或机器专属文件默认被 `.gitignore` 忽略、本地生效。
+- 终端环境下先进行交互问答（项目名称、用途、语言栈、选用 Agent、是否配置全局模型），回答写入 PROJECT.md 并决定是否铺设 Pi 专属文件；管道/CI 下自动跳过。
 - 保留业务 README、已有 Git 分支、远程地址、提交记录和暂存区；不会提交、推送或执行 git init。
 - 默认已有不同内容的文件显示 `SKIP` 并保留；相同内容显示 `MATCH`。要采用模板版本，可显式使用 `--overwrite`，旧文件先备份到 `.pi/template-backups/时间-标识/`。
-- `.gitignore` 只追加一个有标记的小段，忽略个人状态、本地 Pi 目录和模板备份；不替换已有忽略规则。已有 gitignore 被修改时也会备份。
+- `.gitignore` 只追加一个有标记的小段，忽略 agent 专属或机器专属文件（`.pi/`、模型样例、配置脚本、决策记录等），让它们本地生效但不进入新项目仓库；通用规则与项目资料（AGENTS.md、CLAUDE.md、PROJECT.md 等）保持可提交。不替换已有忽略规则。已有 gitignore 被修改时也会备份。
 - `--dry-run` 只预览，不改项目或全局配置。`--global-models` 会先预检全局配置，再安装项目文件并执行模型配置。
 - 单个脚本已嵌入全部模板内容，不再次从 GitHub 下载文件；任意位置下载后均可执行。安装需要 Git 和 Node.js 22.19+，全程无需额外依赖安装。
 - 默认不修改本机全局 Pi 配置。传 `--global-models` 时，模型配置按既有备份、合并规则处理。项目文件中已有的模型设置仍默认保留。
@@ -58,6 +61,11 @@ curl.exe -fsSL https://raw.githubusercontent.com/suglow/pi-project-template/main
 | `--dry-run` | 预览项目安装；有全局选项时同时预检模型配置 |
 | `--overwrite` | 备份并替换模板管理范围内的同名文件 |
 | `--project-dir DIR` | 从指定目录定位 Git 根目录 |
+| `--non-interactive` | 跳过交互问答，使用默认值 |
+| `--project-name NAME` | 项目名称，写入 PROJECT.md |
+| `--description TEXT` | 项目用途/描述，写入 PROJECT.md |
+| `--stack TEXT` | 语言/技术栈，写入 PROJECT.md |
+| `--agents LIST` | 选用 Agent（逗号分隔），决定铺设哪些专属文件 |
 | `--global-models` | 明确选择同时设置全局 models.json |
 | `--base-url URL` | 全局服务地址，需同时传 --global-models |
 | `--agent-dir DIR` | 全局 Pi 目录，需同时传 --global-models |
@@ -113,12 +121,13 @@ git remote add origin YOUR_NEW_PROJECT_REPOSITORY_URL
 4. 在项目根目录运行 `pi`，信任自己准备的项目配置，输入 `/project-start 你的任务`。
 5. 用自己的 Git 身份提交业务改动，再向新项目的 `origin` 推送。
 
-本模板以标准文件名 **AGENTS.md** 提供统一规则。Pi 自动发现它；其他 Agent 按各自的规则加载机制使用，不能保证所有工具都自动识别同一文件。
+本模板以标准文件名 **AGENTS.md** 提供统一规则，Codex、Pi、OpenCode、Hermes 均会自动读取；另提供 **CLAUDE.md** 作为指向 AGENTS.md 的规则入口，覆盖 Claude Code 等工具。
 
 ## 目录与用途
 
 ```text
-AGENTS.md                        通用工作约定，不含机器参数
+AGENTS.md                        通用工作约定（Codex/Pi/OpenCode/Hermes 共同读取）
+CLAUDE.md                       规则入口，指向 AGENTS.md，供 Claude Code 等读取
 PROJECT.md                       新项目的目标、结构、命令和约束
 .pi/settings.json                项目默认模型、推理和压缩设置
 .pi/APPEND_SYSTEM.md             Pi 追加提示，保留默认系统提示
