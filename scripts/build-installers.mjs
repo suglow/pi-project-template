@@ -23,6 +23,7 @@ const files = {
   'scripts/configure-models.sh': 'pi',
   'scripts/configure-models.bat': 'pi',
   'docs/DECISIONS.md': 'pi',
+  'opencode.json': 'opencode',
 };
 const encoded = Object.fromEntries(Object.keys(files).map(file => [file, fs.readFileSync(path.join(root, file)).toString('base64')]));
 const core = fs.readFileSync(path.join(root, 'scripts/project-installer-core.mjs'), 'utf8').replaceAll('\r\n', '\n');

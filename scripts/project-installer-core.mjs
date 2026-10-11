@@ -72,7 +72,7 @@ function checkPath(root, relative) {
 
 const ignoreBegin = '# BEGIN pi-project-template';
 const ignoreEnd = '# END pi-project-template';
-const ignoreBlock = `${ignoreBegin}\n.pi/\nconfig/pi/models.r9700.json\nscripts/configure-models.mjs\nscripts/configure-models.sh\nscripts/configure-models.bat\ndocs/DECISIONS.md\n${ignoreEnd}\n`;
+const ignoreBlock = `${ignoreBegin}\n.pi/settings.json\n.pi/STATE.md\n.pi/agent/\n.pi/sessions/\n.pi/template-backups/\nconfig/pi/models.r9700.json\nscripts/configure-models.mjs\nscripts/configure-models.sh\nscripts/configure-models.bat\ndocs/DECISIONS.md\nopencode.json\n${ignoreEnd}\n`;
 
 function gitignoreContent(previous) {
   const text = previous?.toString('utf8') || '';
@@ -154,11 +154,12 @@ function renderProjectMd(template, answers) {
 
 function filesForAgents(bundle, agents) {
   const groups = bundle.groups || {};
-  const usePi = agents.includes('pi') || agents.includes('all');
   const selected = {};
   for (const [relative, encoded] of Object.entries(bundle.files)) {
     const group = groups[relative] || 'common';
-    if (group === 'common' || (group === 'pi' && usePi)) selected[relative] = encoded;
+    if (group === 'common' || agents.includes(group) || agents.includes('all')) {
+      selected[relative] = encoded;
+    }
   }
   return selected;
 }

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "paiton": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Paiton R9700",
+      "options": {
+        "baseURL": "http://127.0.0.1:18982/v1"
+      },
+      "models": {
+        "Qwen3.8": {
+          "name": "Qwen3.8 27B R9700",
+          "limit": {
+            "context": 245000,
+            "output": 16384
+          }
+        }
+      }
+    }
+  }
+}

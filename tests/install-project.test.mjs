@@ -68,7 +68,7 @@ test('gitignore additions preserve existing rules and remain idempotent', () => 
   assert.equal(run(project).status, 0);
   const first = fs.readFileSync(path.join(project, '.gitignore'), 'utf8');
   assert.ok(first.startsWith('specific-cache/\n'));
-  assert.ok(first.includes('.pi/'));
+  assert.ok(first.includes('.pi/settings.json'));
   assert.ok(first.includes('config/pi/models.r9700.json'));
   const result = run(project);
   assert.equal(result.status, 0, result.stderr);
@@ -76,20 +76,20 @@ test('gitignore additions preserve existing rules and remain idempotent', () => 
   assert.ok(result.stdout.includes('No changes needed'));
 });
 
-test('agent-specific files are gitignored while shared rules stay committable', () => {
+test('agent-specific files are gitignored while project config stays committable', () => {
   const {project} = fixture();
   const result = run(project);
   assert.equal(result.status, 0, result.stderr);
-  for (const file of ['.pi/settings.json', '.pi/STATE.example.md', 'config/pi/models.r9700.json', 'scripts/configure-models.mjs', 'docs/DECISIONS.md']) {
+  for (const file of ['.pi/settings.json', '.pi/STATE.md', 'config/pi/models.r9700.json', 'scripts/configure-models.mjs', 'docs/DECISIONS.md', 'opencode.json']) {
     const check = spawnSync('git', ['check-ignore', file], {cwd: project, encoding: 'utf8'});
     assert.equal(check.status, 0, `${file} should be ignored`);
   }
-  for (const file of ['AGENTS.md', 'CLAUDE.md', 'PROJECT.md', '.editorconfig', '.gitattributes', '.github/PULL_REQUEST_TEMPLATE.md']) {
+  for (const file of ['AGENTS.md', 'CLAUDE.md', 'PROJECT.md', '.editorconfig', '.gitattributes', '.github/PULL_REQUEST_TEMPLATE.md', '.pi/STATE.example.md', '.pi/APPEND_SYSTEM.md', '.pi/prompts/project-start.md']) {
     const check = spawnSync('git', ['check-ignore', file], {cwd: project, encoding: 'utf8'});
     assert.notEqual(check.status, 0, `${file} should not be ignored`);
   }
   const status = spawnSync('git', ['status', '--porcelain'], {cwd: project, encoding: 'utf8'}).stdout;
-  assert.deepEqual(status.split('\n').filter(Boolean).map(line => line.slice(3)).sort(), ['.editorconfig', '.gitattributes', '.github/', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'PROJECT.md']);
+  assert.deepEqual(status.split('\n').filter(Boolean).map(line => line.slice(3)).sort(), ['.editorconfig', '.gitattributes', '.github/', '.gitignore', '.pi/', 'AGENTS.md', 'CLAUDE.md', 'PROJECT.md']);
 });
 
 test('project answers render into PROJECT.md', () => {
@@ -105,7 +105,7 @@ test('project answers render into PROJECT.md', () => {
 
 test('agent selection without pi omits Pi-specific files', () => {
   const {project} = fixture();
-  const result = run(project, ['--agents', 'codex,opencode,hermes']);
+  const result = run(project, ['--agents', 'codex,hermes']);
   assert.equal(result.status, 0, result.stderr);
   for (const file of ['AGENTS.md', 'CLAUDE.md', 'PROJECT.md']) {
     assert.ok(fs.existsSync(path.join(project, file)), file);
@@ -113,6 +113,17 @@ test('agent selection without pi omits Pi-specific files', () => {
   assert.equal(fs.existsSync(path.join(project, '.pi/settings.json')), false);
   assert.equal(fs.existsSync(path.join(project, 'config/pi/models.r9700.json')), false);
   assert.equal(fs.existsSync(path.join(project, 'scripts/configure-models.mjs')), false);
+  assert.equal(fs.existsSync(path.join(project, 'opencode.json')), false);
+});
+
+test('selecting opencode lays down opencode.json without Pi files', () => {
+  const {project} = fixture();
+  const result = run(project, ['--agents', 'opencode']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(fs.existsSync(path.join(project, 'opencode.json')));
+  const config = JSON.parse(fs.readFileSync(path.join(project, 'opencode.json'), 'utf8'));
+  assert.equal(config.provider.paiton.options.baseURL, 'http://127.0.0.1:18982/v1');
+  assert.equal(fs.existsSync(path.join(project, '.pi/settings.json')), false);
 });
 
 test('selecting pi lays down Pi-specific files', () => {
